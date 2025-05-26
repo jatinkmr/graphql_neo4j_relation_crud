@@ -1,0 +1,25 @@
+{
+  "name": "graphql_neo4j_relation_crud",
+  "version": "1.0.0",
+  "main": "index.js",
+  "scripts": {
+    "test": "echo \"Error: no test specified\" && exit 1",
+    "dev": "nodemon server.js"
+  },
+  "keywords": [],
+  "author": "",
+  "license": "ISC",
+  "description": "",
+  "dependencies": {
+    "@apollo/server": "^4.12.1",
+    "body-parser": "^2.2.0",
+    "cors": "^2.8.5",
+    "express": "^5.1.0",
+    "graphql": "^16.11.0",
+    "joi": "^17.13.3",
+    "neo4j-driver": "^5.28.1"
+  },
+  "devDependencies": {
+    "nodemon": "^3.1.10"
+  }
+}
