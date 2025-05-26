@@ -1,15 +1,15 @@
 const typeDefs = `
     type User {
-        id: ID!
+        id: String!
         username: String!
         email: String!
         fullName: String
         createdAt: String!
-        posts: [Post!]!
-        followers: [User!]!
-        following: [User!]!
-        followerCount: Int!
-        followingCount: Int!
+        posts: [Post!]
+        followers: [User!]
+        following: [User!]
+        followerCount: Int
+        followingCount: Int
     }
 
     type Post {
@@ -61,10 +61,15 @@ const typeDefs = `
         postId: ID!
     }
 
+    input FetchUserList {
+        pageNumber: Int
+        pageSize: Int
+    }
+
     type Query {
         # User queries
-        users: [User!]!
-        user(id: ID!): User
+        getAllUsers(input: FetchUserList): [User!]!
+        fetchUserInfo(id: String!): User
         searchUsers(query: String!): [User!]!
 
         # Post queries
