@@ -7,7 +7,7 @@
     "dev": "nodemon server.js"
   },
   "keywords": [],
-  "author": "",
+  "author": "kunar.jatin873@gmail.com",
   "license": "ISC",
   "description": "",
   "dependencies": {
