@@ -176,24 +176,51 @@ const resolvers = {
                 await session.close();
             }
         },
-        updateUser: async (_, { input }) => {
+        updateUser: async (_, { id, input }) => {
             const session = driver.session();
             try {
                 const { error } = updateUserValidation(input)
                 if (error)
-                    throw new Error(error.details[0]?.message || 'Validation failed!!');
+                    throw new GraphQLError(error.details[0]?.message || 'Validation failed!!', { extensions: { code: 'VALIDATION_ERROR' } });
 
-                const setClause = Object.keys(input).map(key => `u.${key} = $${key}`).join(', ');
-
-                if (!setClause) throw new Error('No fields to update');
-
-                const result = await session.run(`MATCH (u:User {id: $id}) SET ${setClause} RETURN u`, { id, ...input });
-
-                if (result.records.length === 0) {
-                    throw new Error('User not found');
+                if (!Object.keys(input)?.length) {
+                    throw new GraphQLError('No fields to update', {
+                        extensions: { code: 'VALIDATION_ERROR' }
+                    });
                 }
 
-                return result.records[0].get('u').properties;
+                const setClause = Object.keys(input)
+                    .map(key => `u.${key} = $${key}`)
+                    .join(', ');
+
+                if (!setClause) {
+                    throw new GraphQLError('No fields to update', {
+                        extensions: { code: 'VALIDATION_ERROR' }
+                    });
+                }
+
+                const parameters = { id, ...input };
+
+                const cypher = `MATCH (u:User {id: $id}) SET ${setClause} RETURN u`;
+
+                const result = await session.run(cypher, parameters);
+
+                if (result.records.length === 0) {
+                    throw new GraphQLError('User not found', {
+                        extensions: { code: 'NOT_FOUND' }
+                    });
+                }
+
+                const userResult = await session.run('MATCH (u: User {id: $id}) RETURN u', { id });
+
+                let userNode = userResult.records[0].get('u').properties;
+
+                let response = {
+                    id: userNode?.id, username: userNode?.username,
+                    email: userNode?.email, fullName: userNode?.fullName, createdAt: userNode?.createdAt
+                };
+
+                return response;
             } catch (error) {
                 console.log('Error while updating the user ->', error)
 
