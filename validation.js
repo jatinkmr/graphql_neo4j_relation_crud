@@ -18,3 +18,12 @@ exports.fetchUserList = data => {
 
     return schema.validate(data);
 }
+
+exports.updateUserValidation = data => {
+    const schema = Joi.object().keys({
+        username: Joi.string().optional(),
+        fullName: Joi.string().optional()
+    })
+
+    return schema.validate(data);
+}

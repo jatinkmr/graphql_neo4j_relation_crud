@@ -1,5 +1,5 @@
 import neo4j from 'neo4j-driver';
-import { createUserValidation, fetchUserList } from './validation.js';
+import { createUserValidation, fetchUserList, updateUserValidation } from './validation.js';
 import { GraphQLError } from 'graphql';
 
 const driver = neo4j.driver(
@@ -176,7 +176,65 @@ const resolvers = {
                 await session.close();
             }
         },
-        updateUser: async (_, reqObj) => {}
+        updateUser: async (_, { input }) => {
+            const session = driver.session();
+            try {
+                const { error } = updateUserValidation(input)
+                if (error)
+                    throw new Error(error.details[0]?.message || 'Validation failed!!');
+
+                const setClause = Object.keys(input).map(key => `u.${key} = $${key}`).join(', ');
+
+                if (!setClause) throw new Error('No fields to update');
+
+                const result = await session.run(`MATCH (u:User {id: $id}) SET ${setClause} RETURN u`, { id, ...input });
+
+                if (result.records.length === 0) {
+                    throw new Error('User not found');
+                }
+
+                return result.records[0].get('u').properties;
+            } catch (error) {
+                console.log('Error while updating the user ->', error)
+
+                if (error instanceof GraphQLError)
+                    throw error;
+
+                if (error.code) {
+                    switch (error.code) {
+                        case 'Neo.ClientError.Schema.ConstraintValidationFailed':
+                            throw new GraphQLError('User with this email or username already exists', {
+                                extensions: {
+                                    code: 'DUPLICATE_USER',
+                                    originalError: error.message
+                                }
+                            });
+                        case 'Neo.ClientError.Security.Unauthorized':
+                            throw new GraphQLError('Database connection unauthorized', {
+                                extensions: {
+                                    code: 'DATABASE_ERROR'
+                                }
+                            });
+                        default:
+                            throw new GraphQLError(`Database error: ${error.message}`, {
+                                extensions: {
+                                    code: 'DATABASE_ERROR',
+                                    originalError: error.message
+                                }
+                            });
+                    }
+                }
+
+                throw new GraphQLError(`Failed to create user: ${error.message}`, {
+                    extensions: {
+                        code: 'INTERNAL_SERVER_ERROR',
+                        originalError: error.message
+                    }
+                });
+            } finally {
+                await session.close();
+            }
+        }
     }
 };
 
