@@ -261,6 +261,68 @@ const resolvers = {
             } finally {
                 await session.close();
             }
+        },
+        deleteUser: async (_, { id }) => {
+            const session = driver.session();
+            try {
+                if (!id) {
+                    throw new GraphQLError('User ID is required for deletion', {
+                        extensions: {
+                            code: 'BAD_USER_INPUT'
+                        }
+                    });
+                }
+
+                const userExistResult = await session.run('MATCH (u:User {id: $id}) RETURN u', { id });
+                if (userExistResult.records.length === 0) {
+                    throw new GraphQLError("User with provided ID doesn't exist!", {
+                        extensions: {
+                            code: 'USER_NOT_FOUND'
+                        }
+                    });
+                }
+
+                await session.run(`MATCH (u:User {id: $id}) DETACH DELETE u RETURN count(u) as deletedCount`, { id });
+                return true;
+            } catch (error) {
+                console.log('Error while updating the user ->', error)
+
+                if (error instanceof GraphQLError)
+                    throw error;
+
+                if (error.code) {
+                    switch (error.code) {
+                        case 'Neo.ClientError.Security.Unauthorized':
+                            throw new GraphQLError('Database connection unauthorized', {
+                                extensions: {
+                                    code: 'DATABASE_ERROR'
+                                }
+                            });
+                        case 'Neo.ClientError.Statement.SyntaxError':
+                            throw new GraphQLError('Invalid query syntax', {
+                                extensions: {
+                                    code: 'DATABASE_ERROR'
+                                }
+                            });
+                        default:
+                            throw new GraphQLError(`Database error: ${error.message}`, {
+                                extensions: {
+                                    code: 'DATABASE_ERROR',
+                                    originalError: error.message
+                                }
+                            });
+                    }
+                }
+
+                throw new GraphQLError(`Failed to create user: ${error.message}`, {
+                    extensions: {
+                        code: 'INTERNAL_SERVER_ERROR',
+                        originalError: error.message
+                    }
+                });
+            } finally {
+                await session.close();
+            }
         }
     }
 };
