@@ -13,7 +13,7 @@ const typeDefs = `
     }
 
     type Post {
-        id: ID!
+        id: String!
         title: String!
         content: String!
         createdAt: String!
@@ -25,7 +25,7 @@ const typeDefs = `
     }
 
     type Comment {
-        id: ID!
+        id: String!
         content: String!
         createdAt: String!
         author: User!
@@ -61,20 +61,20 @@ const typeDefs = `
         postId: ID!
     }
 
-    input FetchUserList {
+    input FetchList {
         pageNumber: Int
         pageSize: Int
     }
 
     type Query {
         # User queries
-        getAllUsers(input: FetchUserList): [User!]!
+        getAllUsers(input: FetchList): [User!]!
         fetchUserInfo(id: String!): User
         searchUsers(query: String!): [User!]!
 
         # Post queries
-        posts: [Post!]!
-        post(id: ID!): Post
+        fetchAllPosts(input: FetchList): [Post!]!
+        fetchPostInfo(id: String!): Post
         postsByUser(userId: ID!): [Post!]!
 
         # Comment queries

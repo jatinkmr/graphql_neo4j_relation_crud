@@ -10,7 +10,7 @@ exports.createUserValidation = data => {
     return schema.validate(data)
 }
 
-exports.fetchUserList = data => {
+exports.fetchList = data => {
     const schema = Joi.object().keys({
         pageNumber: Joi.number().integer().min(1).required(),
         pageSize: Joi.number().integer().min(1).max(100).required()
@@ -24,6 +24,16 @@ exports.updateUserValidation = data => {
         username: Joi.string().optional(),
         fullName: Joi.string().optional()
     })
+
+    return schema.validate(data);
+}
+
+exports.postCreationValidation = data => {
+    const schema = Joi.object().keys({
+        authorId: Joi.string().required(),
+        title: Joi.string().required(),
+        content: Joi.string().required()
+    });
 
     return schema.validate(data);
 }

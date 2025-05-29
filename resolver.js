@@ -1,5 +1,5 @@
 import neo4j from 'neo4j-driver';
-import { createUserValidation, fetchUserList, updateUserValidation } from './validation.js';
+import { createUserValidation, fetchList, postCreationValidation, updateUserValidation } from './validation.js';
 import { GraphQLError } from 'graphql';
 
 const driver = neo4j.driver(
@@ -22,10 +22,11 @@ const generateId = () => {
 
 const resolvers = {
     Query: {
+        // user's operations
         getAllUsers: async (_, { input }) => {
             const session = driver.session();
             try {
-                const { error } = fetchUserList(input);
+                const { error } = fetchList(input);
                 if (error)
                     throw new Error(error.details[0]?.message || 'Validation failed!!');
 
@@ -37,6 +38,9 @@ const resolvers = {
                     `MATCH (u:User) RETURN u ORDER BY u.createdAt DESC SKIP $offset LIMIT $limit`,
                     { limit: neo4j.int(limit), offset: neo4j.int(offset) }
                 );
+
+                if (!result?.records?.length)
+                    return [];
 
                 // let response = result.records.map(record => record.get('u').properties);
                 let response = result.records.map(record => {
@@ -62,17 +66,23 @@ const resolvers = {
                 if (!id)
                     throw new Error('UserId not available');
 
-                const result = await session.run('MATCH (u: User {id: $id}) RETURN u', { id });
-                session.close();
+                const result = await session.run(
+                    `MATCH (u: User {id: $id}) OPTIONAL MATCH (u)-[:AUTHORED]->(p:Post) RETURN u, collect(p) as posts`,
+                    { id }
+                );
 
-                const record = result.records[0];
-                if (!record) return null;
+                if (!result.records?.length) return null;
 
                 const userNode = record.get('u').properties;
+                const posts = record.get('posts').map(post => post.properties);
 
                 return {
-                    id: userNode?.id, username: userNode?.username,
-                    email: userNode?.email, fullName: userNode?.fullName, createdAt: userNode?.createdAt
+                    id: userNode?.id,
+                    username: userNode?.username,
+                    email: userNode?.email,
+                    fullName: userNode?.fullName,
+                    createdAt: userNode?.createdAt,
+                    posts: posts || []
                 }
             } catch (error) {
                 console.log(`error while fetching userInfo -> ${error.message}`);
@@ -104,10 +114,131 @@ const resolvers = {
             } catch (error) {
                 console.log(`error while searching the user -> ${error.message}`);
                 throw new Error(error.message);
-            } finally { }
+            } finally {
+                await session.close();
+            }
+        },
+        // post's operations
+        fetchAllPosts: async (_, { input }) => {
+            const session = driver.session();
+            try {
+                const { error } = fetchList(input);
+                if (error)
+                    throw new Error(error.details[0]?.message || 'Validation failed!!');
+
+                let limit = input.pageSize;
+                let page = input.pageNumber;
+                let offset = (page - 1) * limit;
+
+                const result = await session.run(
+                    `MATCH (u: User)-[:AUTHORED]->(p:Post) RETURN p,u ORDER BY p.createdAt DESC SKIP $offset LIMIT $limit`,
+                    { limit: neo4j.int(limit), offset: neo4j.int(offset) }
+                );
+
+                if (!result?.records?.length)
+                    return [];
+
+                const posts = [];
+                result.records.forEach(record => {
+                    const post = record.get('p').properties;
+                    const user = record.get('u').properties;
+                    posts.push({ ...post, author: user });
+                });
+                return posts
+            } catch (error) {
+                console.log('facing error while fetching post list -> ', error.message);
+                throw new Error(error.message);
+            } finally {
+                await session.close();
+            }
+        },
+        fetchPostInfo: async (_, { id }) => {
+            const session = driver.session();
+            try {
+                if (!id) {
+                    throw new GraphQLError('Post id is missing!!', { extensions: { code: 'BAD_USER_INPUT' } });
+                }
+
+                const result = await session.run(
+                    `MATCH (u: User)-[:AUTHORED]->(p:Post {id: $id}) RETURN p, u`,
+                    { id }
+                );
+
+                if (!result?.records?.length) return null;
+
+                const post = result.records[0].get('p').properties;
+                const author = result.records[0].get('u').properties;
+
+                return {
+                    id: post.id,
+                    title: post.title,
+                    content: post.content,
+                    createdAt: post.createdAt,
+                    updatedAt: post.updatedAt || post.createdAt,
+                    author: {
+                        id: author.id,
+                        username: author.username,
+                        email: author.email,
+                        fullName: author.fullName || '',
+                        createdAt: author.createdAt
+                    }
+                };
+            } catch (error) {
+                console.log('Error facing while fetching post info -> ', error.message);
+
+                if (error instanceof GraphQLError) {
+                    throw error;
+                }
+
+                throw new GraphQLError(`Failed to fetch post: ${error.message}`, {
+                    extensions: {
+                        code: 'INTERNAL_SERVER_ERROR',
+                        originalError: error.message
+                    }
+                });
+            } finally {
+                await session.close();
+            }
+        },
+        postsByUser: async (_, { userId }) => {
+            let session = driver.session();
+            try {
+                if (!userId)
+                    throw new GraphQLError('userId is missing!!', { extensions: { code: 'BAD_USER_INPUT' } });
+
+                const result = await session.run(
+                    'MATCH (u:User {id: $userId})-[:AUTHORED]->(p:Post) RETURN p, u ORDER BY p.createdAt DESC',
+                    { userId }
+                );
+                if (!result.records?.length) return [];
+
+                const posts = [];
+                result.records.forEach(record => {
+                    const post = record.get('p').properties;
+                    const user = record.get('u').properties;
+                    posts.push({ ...post, author: user });
+                });
+                return posts;
+            } catch (error) {
+                console.log('Error facing while fetching post info by user -> ', error.message);
+
+                if (error instanceof GraphQLError) {
+                    throw error;
+                }
+
+                throw new GraphQLError(`Failed to fetch post: ${error.message}`, {
+                    extensions: {
+                        code: 'INTERNAL_SERVER_ERROR',
+                        originalError: error.message
+                    }
+                });
+            } finally {
+                await session.close();
+            }
         }
     },
     Mutation: {
+        // user's operations
         createUser: async (_, { input }) => {
             const session = driver.session();
             try {
@@ -300,6 +431,63 @@ const resolvers = {
                             });
                         case 'Neo.ClientError.Statement.SyntaxError':
                             throw new GraphQLError('Invalid query syntax', {
+                                extensions: {
+                                    code: 'DATABASE_ERROR'
+                                }
+                            });
+                        default:
+                            throw new GraphQLError(`Database error: ${error.message}`, {
+                                extensions: {
+                                    code: 'DATABASE_ERROR',
+                                    originalError: error.message
+                                }
+                            });
+                    }
+                }
+
+                throw new GraphQLError(`Failed to create user: ${error.message}`, {
+                    extensions: {
+                        code: 'INTERNAL_SERVER_ERROR',
+                        originalError: error.message
+                    }
+                });
+            } finally {
+                await session.close();
+            }
+        },
+        // post's operations
+        createPost: async (_, { input }) => {
+            let session = driver.session();
+            try {
+                const { error } = postCreationValidation(input);
+                if (error)
+                    throw new GraphQLError(error.details[0]?.message || 'Validation failed!!', { extensions: { code: 'VALIDATION_ERROR' } });
+
+                const isUserExist = await session.run('MATCH (u: User {id: $id}) RETURN u', { id: input.authorId });
+                if (!isUserExist.records[0])
+                    throw new GraphQLError('Author not found!!', { extensions: { code: 'USER_NOT_FOUND' } });
+
+                const id = generateId();
+                const createdAt = new Date().toISOString();
+
+                let reqBody = { title: input.title, content: input.content, createdAt, authorId: input.authorId, id };
+
+                const result = await session.run(`MATCH (u: User { id: $authorId }) CREATE (p: Post { id: $id, title: $title, content: $content, createdAt: $createdAt, updatedAt: $createdAt }) CREATE (u)-[:AUTHORED]->(p) RETURN p`, reqBody);
+
+                if (!result?.records?.length)
+                    throw new GraphQLError('Post creation failed!!', { extensions: { code: 'POST_CREATION_FAILED' } })
+
+                return result.records[0].get('p').properties;
+            } catch (error) {
+                console.error('Error creating user:', error);
+
+                if (error instanceof GraphQLError)
+                    throw error;
+
+                if (error.code) {
+                    switch (error.code) {
+                        case 'Neo.ClientError.Security.Unauthorized':
+                            throw new GraphQLError('Database connection unauthorized', {
                                 extensions: {
                                     code: 'DATABASE_ERROR'
                                 }
